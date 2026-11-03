@@ -1,0 +1,177 @@
+# 由 deliverables/e2e/gen-fork-test-workflow.ts 從 publish-release.yml 產生；只放在 fork 的 ci/fork-image-arm64-test 分支，不進 PR。
+name: "fork test: openbot image arm64"
+on:
+  push:
+    branches:
+      - ci/fork-image-arm64-test
+permissions:
+  contents: read
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        env:
+          RUN: ${{ github.run_number }}
+        run: echo "version=v0.0.0-fork-test.$RUN" >> "$GITHUB_OUTPUT"
+  image:
+    name: image ${{ matrix.platform.arch }}
+    needs:
+      - metadata
+    runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with:
+          context: .
+          platforms: linux/${{ matrix.platform.arch }}
+          outputs: type=image,name=ghcr.io/seagullinfight2077/openbot-arm64-test,push-by-digest=true,name-canonical=true,push=true
+          cache-from: |
+            type=gha
+            type=gha,scope=openbot-${{ matrix.platform.arch }}
+          cache-to: type=gha,mode=max,scope=openbot-${{ matrix.platform.arch }}
+          provenance: true
+          sbom: true
+      - name: Record the digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          ARCH: ${{ matrix.platform.arch }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          mkdir -p digests
+          echo "$DIGEST" > "digests/$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: digest-openbot-${{ matrix.platform.arch }}
+          path: digests/
+          retention-days: 1
+  image-manifest:
+    name: image manifest
+    needs:
+      - metadata
+      - image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.merge.outputs.digest }}
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: digest-openbot-amd64
+          path: digests
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: digest-openbot-arm64
+          path: digests
+      - id: merge
+        name: Write the tags over both architectures
+        env:
+          REPOSITORY: ghcr.io/seagullinfight2077/openbot-arm64-test
+          VERSION: ${{ needs.metadata.outputs.version }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          refs=()
+          for arch in amd64 arm64; do
+            digest="$(cat "digests/$arch")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            refs+=("$REPOSITORY@$digest")
+          done
+          # The version, the commit, and a moving latest. The version tag is the one to deploy; the
+          # commit tag is how you find out what a running image actually contains.
+          docker buildx imagetools create \
+            --tag "$REPOSITORY:$VERSION" \
+            --tag "$REPOSITORY:$COMMIT" \
+            --tag "$REPOSITORY:latest" \
+            "${refs[@]}"
+          digest="$(docker buildx imagetools inspect "$REPOSITORY:$VERSION" --format '{{.Manifest.Digest}}')"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-name: ghcr.io/seagullinfight2077/openbot-arm64-test
+          subject-digest: ${{ steps.merge.outputs.digest }}
+          push-to-registry: true
+  verify:
+    name: boot ${{ matrix.platform.arch }} from the merged tag
+    needs:
+      - metadata
+      - image-manifest
+    runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Inspect, pull, boot, verify attestation
+        env:
+          IMAGE: ghcr.io/seagullinfight2077/openbot-arm64-test:${{ needs.metadata.outputs.version }}
+          DIGEST: ${{ needs.image-manifest.outputs.digest }}
+          ARCH: ${{ matrix.platform.arch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |-
+          set -euo pipefail
+          docker buildx imagetools inspect "$IMAGE"
+          test "$(docker buildx imagetools inspect "$IMAGE" --format '{{.Manifest.Digest}}')" = "$DIGEST"
+          docker pull "$IMAGE"
+          docker image inspect "$IMAGE" --format "{{.Architecture}}" | tee arch.txt
+          test "$(cat arch.txt)" = "$ARCH"
+          docker run -d --name ob -p 3001:3001 -e EMBEDDED_POSTGRES=on \
+            -e KEY_ENCRYPTION_KEY="$(openssl rand -base64 32)" -e TRUSTED_ORIGINS=http://localhost:3001 \
+            -e OPENBOT_SINGLE_USER=true -e INTELLIGENCE_API_URL=https://api.intelligence.copilotkit.ai \
+            -e INTELLIGENCE_GATEWAY_WS_URL=wss://realtime.intelligence.copilotkit.ai \
+            -e INTELLIGENCE_API_KEY=ci-not-a-real-key "$IMAGE"
+          for s in $(seq 1 150); do
+            if curl -fsS http://localhost:3001/api/capabilities >/dev/null 2>&1; then echo "uname=$(docker exec ob uname -m) answered after ${s}s"; break; fi
+            [ "$s" = 150 ] && { docker logs ob; exit 1; }
+            sleep 1
+          done
+          gh attestation verify "oci://$IMAGE" -R "$REPO"
