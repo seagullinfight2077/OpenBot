@@ -99,6 +99,31 @@ Newest first. `Unreleased` is what is on `main` and not yet tagged.
   the person opens the app under Connections, or presses Connect where Arcade already holds
   everything the app asks for.
 
+### A responsibility hears about large pull requests
+
+GitHub events for a responsibility were refused above 32 KB, and most `pull_request` deliveries are
+larger: the pull request repeats its repository under `head` and `base`. For the last 30 pull
+requests on this repository, 23 were refused. They were answered 503, which GitHub does not deliver
+again on its own, so the responsibility never ran and nothing said why. The route now takes up to
+256 KB, like the event triggers, and fits what it stores into 32 KB the same way they do: an event
+over 32 KB is kept as its short top-level fields (`action`, `number`) and an excerpt from the start of
+the rest, so the Bot sees which pull request changed and the beginning of its details. A body over
+256 KB is answered 413.
+
+### A Bot can hold hundreds of tools
+
+A Bot that holds more than 50 tools is no longer sent all of them on every step. Its own tools stay
+in front of the model, and an app's tools wait behind one search tool: the model searches in a few
+words and calls what it found from its next step, by the tool's real name. Every call still goes
+through the grant, the approval rules and the audit trail. A Bot holding 279 tools after approving
+Shopify, which stopped answering, now answers. A question that needs an app's tool makes one more
+model call than before. Bots at or under 50 tools are sent exactly what they were.
+
+A run that would still send more than 128 tools at once, counting the room it keeps for a search's
+answer, is refused before the model is called. Chat Completions refuses more than 128 itself, and
+search never sends more. The person is told why, and the audit log records it under Blocked as "Too
+many tools for its model".
+
 ### Bots can install packages on their computers
 
 Package installs such as Nmap and ping now work on supervisor-managed computers. Existing computers
