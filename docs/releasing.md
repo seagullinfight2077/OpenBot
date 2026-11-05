@@ -511,7 +511,9 @@ Then, in order:
   checked for a section with that number
 - one image is built and pushed to `ghcr.io/copilotkit/openbot`, tagged with the version, the
   commit as `sha-<commit>` and `latest` only when the release becomes Latest (a stable release with
-  no newer release already out). A candidate or beta is never tagged `latest`
+  no newer release already out). A candidate or beta is never tagged `latest`. It is `linux/amd64`
+  and `linux/arm64`, built on native runners of each architecture and joined into one manifest list,
+  the same way as the services below
 - the services `docker-compose.yml` can build are published too, one image each, at
   `ghcr.io/copilotkit/openbot-<service>`. Those are `linux/amd64` and `linux/arm64`, built on native
   runners of each architecture and joined into one manifest list, because the machines pulling them

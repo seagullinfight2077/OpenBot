@@ -236,6 +236,15 @@ Newest first. `Unreleased` is what is on `main` and not yet tagged.
   its tools to every Bot, including Bots made later. It can no longer be removed, and a Bot's
   Routines tools can no longer be taken away.
 
+### The all-in-one image runs natively on arm64
+
+`ghcr.io/copilotkit/openbot` is now published for `linux/amd64` and `linux/arm64`, joined into one
+manifest list like the component images, so an Apple Silicon Mac or an arm64 node group (Graviton,
+Tau T2A, Ampere) pulls its own architecture from the same tag instead of running amd64 under
+emulation or failing with `ImagePullBackOff`. The digest in `container-images.json` and the one
+`gh attestation verify` checks are now the list's. Releases up to and including 0.2.0 stay
+amd64-only.
+
 ### A personal edition for one person on one computer
 
 Set `OPENBOT_EDITION=personal`, with single-user mode and one computer, for an OpenBot without the
