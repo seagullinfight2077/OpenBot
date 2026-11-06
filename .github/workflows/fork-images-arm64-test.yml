@@ -4,6 +4,8 @@ name: Fork images arm64 test
 # openbot image is built, joined and attested on GitHub's own runners. Publishes under this fork's
 # ghcr namespace with a test tag and never moves `latest`.
 on:
+  push:
+    branches: [ci/fork-images-arm64-test]
   workflow_dispatch:
 
 permissions:
