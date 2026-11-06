@@ -1,0 +1,25 @@
+name: Fork images arm64 test
+
+# Fork only, never for upstream: runs the real images.yml from this commit so the two-architecture
+# openbot image is built, joined and attested on GitHub's own runners. Publishes under this fork's
+# ghcr namespace with a test tag and never moves `latest`.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    name: images
+    uses: ./.github/workflows/images.yml
+    with:
+      ref: ${{ github.sha }}
+      tags: arm64-test
+      latest: false
+      manifest_version: arm64-test
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
